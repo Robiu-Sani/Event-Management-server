@@ -30,7 +30,7 @@ async function run() {
 
     // User Registration
     app.post("/api/v1/register", async (req, res) => {
-      const { username, email, password } = req.body;
+      const { name, photoUrl, email, password } = req.body;
 
       // Check if email already exists
       const existingUser = await collection.findOne({ email });
@@ -46,7 +46,8 @@ async function run() {
 
       // Insert user into the database
       await collection.insertOne({
-        username,
+        name,
+        photoUrl,
         email,
         password: hashedPassword,
         role: "user",
