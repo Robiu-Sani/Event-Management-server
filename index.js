@@ -3,7 +3,9 @@ const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
 const { MongoClient } = require("mongodb");
+const { ObjectId } = require("mongodb");
 const jwt = require("jsonwebtoken");
+const e = require("express");
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -70,34 +72,44 @@ async function run() {
 
     // User Login
     app.post("/api/v1/login", async (req, res) => {
-      const { email, password } = req.body;
-
-      // Find user by email
-      const user = await user.findOne({ email });
-      if (!user) {
-        return res.status(401).json({ message: "Invalid email or password" });
-      }
-
-      // Compare hashed password
-      const isPasswordValid = await bcrypt.compare(password, user.password);
-      if (!isPasswordValid) {
-        return res.status(401).json({ message: "Invalid email or password" });
-      }
-
-      // Generate JWT token
-      const token = jwt.sign(
-        { email: user.email, role: user.role },
-        process.env.JWT_SECRET,
-        {
-          expiresIn: process.env.EXPIRES_IN,
+      try {
+        const { email, password } = req.body;
+        // Find user by email
+        const checkuser = await user.findOne({ email });
+        if (!checkuser) {
+          return res.status(401).json({ message: "Invalid email or password" });
         }
-      );
 
-      res.json({
-        success: true,
-        message: "User successfully logged in!",
-        accessToken: token,
-      });
+        // Compare hashed password
+        const isPasswordValid = await bcrypt.compare(
+          password,
+          checkuser.password
+        );
+        if (!isPasswordValid) {
+          return res.status(401).json({ message: "Invalid email or password" });
+        }
+
+        // Generate JWT token
+        const token = jwt.sign(
+          { email: checkuser.email, role: checkuser.role },
+          process.env.JWT_SECRET,
+          {
+            expiresIn: process.env.EXPIRES_IN,
+          }
+        );
+
+        res.json({
+          success: true,
+          message: "User successfully logged in!",
+          accessToken: token,
+        });
+      } catch (error) {
+        console.error("Login error:", error);
+        return res.status(500).json({
+          success: false,
+          message: "Internal server error",
+        });
+      }
     });
 
     app.post("/api/v1/event", async (req, res) => {
@@ -172,17 +184,16 @@ async function run() {
 
         // Handle date filter
         if (req.query.date) {
-          const startDate = new Date(req.query.date);
-          if (isNaN(startDate)) {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(req.query.date)) {
             return res.status(400).json({
               success: false,
               message: "Invalid date format. Use YYYY-MM-DD",
             });
           }
-          const endDate = new Date(startDate);
-          endDate.setDate(endDate.getDate() + 1);
-          filter.date = { $gte: startDate, $lt: endDate };
+          filter.date = req.query.date; // Direct string match
         }
+
+        console.log(req.query.date);
 
         // Handle category filter
         if (req.query.category && req.query.category !== "all") {
@@ -235,7 +246,7 @@ async function run() {
           .json({ success: false, message: "You are not authorized" });
       }
       const eventData = await event.findOne({
-        _id: new MongoClient.ObjectId(id),
+        _id: new ObjectId(id),
       });
       if (!eventData) {
         return res
@@ -262,7 +273,7 @@ async function run() {
           .json({ success: false, message: "You are not authorized" });
       }
       const eventData = await event.findOne({
-        _id: new MongoClient.ObjectId(id),
+        _id: new ObjectId(id),
       });
       if (!eventData) {
         return res
@@ -282,7 +293,7 @@ async function run() {
         updatedAt: new Date(),
       };
       const result = await event.updateOne(
-        { _id: new MongoClient.ObjectId(id) },
+        { _id: new ObjectId(id) },
         { $set: updatedEvent }
       );
       if (result.modifiedCount === 0) {
@@ -315,7 +326,7 @@ async function run() {
           .json({ success: false, message: "You are not authorized" });
       }
       const eventData = await event.findOne({
-        _id: new MongoClient.ObjectId(id),
+        _id: new ObjectId(id),
       });
       if (!eventData) {
         return res
@@ -331,7 +342,7 @@ async function run() {
       }
       // Delete the event
       const result = await event.deleteOne({
-        _id: new MongoClient.ObjectId(id),
+        _id: new ObjectId(id),
       });
       if (result.deletedCount === 0) {
         return res
@@ -362,7 +373,7 @@ async function run() {
           .json({ success: false, message: "You are not authorized" });
       }
       const eventData = await event.findOne({
-        _id: new MongoClient.ObjectId(id),
+        _id: new ObjectId(id),
       });
       if (!eventData) {
         return res
@@ -382,7 +393,7 @@ async function run() {
         $addToSet: { attendees: userEmail },
       };
       const result = await event.updateOne(
-        { _id: new MongoClient.ObjectId(id) },
+        { _id: new ObjectId(id) },
         updatedEvent
       );
       if (result.modifiedCount === 0) {
