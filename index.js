@@ -25,15 +25,15 @@ async function run() {
     await client.connect();
     console.log("Connected to MongoDB");
 
-    const db = client.db("authentication");
-    const collection = db.collection("users");
+    const db = client.db("EventManagement");
+    const user = db.collection("users");
+    const event = db.collection("events");
 
     // User Registration
     app.post("/api/v1/register", async (req, res) => {
       const { name, photoUrl, email, password } = req.body;
-
       // Check if email already exists
-      const existingUser = await collection.findOne({ email });
+      const existingUser = await user.findOne({ email });
       if (existingUser) {
         return res.status(400).json({
           success: false,
@@ -44,8 +44,16 @@ async function run() {
       // Hash the password
       const hashedPassword = await bcrypt.hash(password, 10);
 
+      // Generate JWT token
+      const token = jwt.sign(
+        { email: email, role: "user" },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: process.env.EXPIRES_IN,
+        }
+      );
       // Insert user into the database
-      await collection.insertOne({
+      await user.insertOne({
         name,
         photoUrl,
         email,
@@ -55,6 +63,7 @@ async function run() {
 
       res.status(201).json({
         success: true,
+        accessToken: token,
         message: "User registered successfully!",
       });
     });
@@ -64,7 +73,7 @@ async function run() {
       const { email, password } = req.body;
 
       // Find user by email
-      const user = await collection.findOne({ email });
+      const user = await user.findOne({ email });
       if (!user) {
         return res.status(401).json({ message: "Invalid email or password" });
       }
@@ -88,6 +97,38 @@ async function run() {
         success: true,
         message: "User successfully logged in!",
         accessToken: token,
+      });
+    });
+
+    app.post("/api/v1/event", async (req, res) => {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res
+          .status(401)
+          .json({ success: false, message: "Authorization token required" });
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const userEmail = decoded.email;
+
+      const IsUserHave = await user.findOne({ email: userEmail });
+      if (!IsUserHave) {
+        return res
+          .status(404)
+          .json({ success: false, message: "User not found" });
+      }
+
+      const eventData = {
+        ...req.body,
+        creatorEmail: userEmail,
+        createdAt: new Date(),
+      };
+
+      const result = await event.insertOne(eventData);
+      res.status(201).json({
+        success: true,
+        message: "Event created successfully!",
+        data: result,
       });
     });
 
