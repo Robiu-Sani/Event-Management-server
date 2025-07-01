@@ -181,6 +181,12 @@ async function run() {
           const nextMonth = new Date(today);
           nextMonth.setMonth(nextMonth.getMonth() + 1);
 
+          const lastWeek = new Date(today);
+          lastWeek.setDate(lastWeek.getDate() - 7);
+
+          const lastMonth = new Date(today);
+          lastMonth.setMonth(lastMonth.getMonth() - 1);
+
           switch (req.query.filter.toLowerCase()) {
             case "today":
               filter.date = {
@@ -200,6 +206,19 @@ async function run() {
               filter.date = {
                 $gte: today.toISOString().split("T")[0],
                 $lt: nextMonth.toISOString().split("T")[0],
+              };
+
+            case "lastweek":
+              filter.date = {
+                $gte: lastWeek.toISOString().split("T")[0],
+                $lt: today.toISOString().split("T")[0],
+              };
+              break;
+
+            case "lastmonth":
+              filter.date = {
+                $gte: lastMonth.toISOString().split("T")[0],
+                $lt: today.toISOString().split("T")[0],
               };
               break;
 
