@@ -146,13 +146,10 @@ async function run() {
 
     app.get("/api/v1/events", async (req, res) => {
       try {
-        // Validate and parse query parameters
         const limit = Math.min(parseInt(req.query.limit) || 12, 100);
         const page = Math.max(parseInt(req.query.page) || 1, 1);
-        const sort = req.query.sort || "-date";
         const skip = (page - 1) * limit;
 
-        // Validate authorization
         const token = req.headers.authorization?.split(" ")[1];
         if (!token) {
           return res.status(401).json({
@@ -161,7 +158,6 @@ async function run() {
           });
         }
 
-        // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const userExists = await user.findOne({ email: decoded.email });
         if (!userExists) {
@@ -171,10 +167,48 @@ async function run() {
           });
         }
 
-        // Initialize filter
         let filter = {};
+        if (req.query.filter) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
 
-        // Handle search query
+          const tomorrow = new Date(today);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+
+          const nextWeek = new Date(today);
+          nextWeek.setDate(nextWeek.getDate() + 7);
+
+          const nextMonth = new Date(today);
+          nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+          switch (req.query.filter.toLowerCase()) {
+            case "today":
+              filter.date = {
+                $gte: today.toISOString().split("T")[0],
+                $lt: tomorrow.toISOString().split("T")[0],
+              };
+              break;
+
+            case "thisweek":
+              filter.date = {
+                $gte: today.toISOString().split("T")[0],
+                $lt: nextWeek.toISOString().split("T")[0],
+              };
+              break;
+
+            case "thismonth":
+              filter.date = {
+                $gte: today.toISOString().split("T")[0],
+                $lt: nextMonth.toISOString().split("T")[0],
+              };
+              break;
+
+            case "all":
+            default:
+              break;
+          }
+        }
+
         if (req.query.search) {
           filter.$or = [
             { title: { $regex: req.query.search, $options: "i" } },
@@ -182,7 +216,6 @@ async function run() {
           ];
         }
 
-        // Handle date filter
         if (req.query.date) {
           if (!/^\d{4}-\d{2}-\d{2}$/.test(req.query.date)) {
             return res.status(400).json({
@@ -190,19 +223,70 @@ async function run() {
               message: "Invalid date format. Use YYYY-MM-DD",
             });
           }
-          filter.date = req.query.date; // Direct string match
+          filter.date = req.query.date;
         }
 
-        console.log(req.query.date);
-
-        // Handle category filter
         if (req.query.category && req.query.category !== "all") {
           filter.category = req.query.category;
         }
 
-        // Get events with pagination
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
         const [events, totalEvents] = await Promise.all([
-          event.find(filter).sort(sort).skip(skip).limit(limit).toArray(),
+          event
+            .aggregate([
+              {
+                $match: filter,
+              },
+              {
+                $addFields: {
+                  eventDate: {
+                    $cond: {
+                      if: { $eq: [{ $type: "$date" }, "string"] },
+                      then: { $dateFromString: { dateString: "$date" } },
+                      else: "$date",
+                    },
+                  },
+                  isToday: {
+                    $eq: [
+                      {
+                        $cond: {
+                          if: { $eq: [{ $type: "$date" }, "string"] },
+                          then: { $dateFromString: { dateString: "$date" } },
+                          else: "$date",
+                        },
+                      },
+                      today,
+                    ],
+                  },
+                  // Check if the event is in the future
+                  isFuture: {
+                    $gt: [
+                      {
+                        $cond: {
+                          if: { $eq: [{ $type: "$date" }, "string"] },
+                          then: { $dateFromString: { dateString: "$date" } },
+                          else: "$date",
+                        },
+                      },
+                      today,
+                    ],
+                  },
+                },
+              },
+              {
+                $sort: {
+                  isToday: -1, // Today's events first (1 = true comes first)
+                  isFuture: -1, // Future events before past events
+                  date: 1, // Oldest first for past events (1 = ascending)
+                },
+              },
+              { $skip: skip },
+              { $limit: limit },
+            ])
+            .toArray(),
+
           event.countDocuments(filter),
         ]);
 
@@ -227,6 +311,174 @@ async function run() {
             process.env.NODE_ENV === "development" ? error.message : undefined,
         });
       }
+    });
+
+    app.get("/api/v1/events/home", async (req, res) => {
+      try {
+        const limit = 6;
+        let filter = {};
+
+        if (req.query.filter) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          const tomorrow = new Date(today);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+
+          const nextWeek = new Date(today);
+          nextWeek.setDate(nextWeek.getDate() + 7);
+
+          const nextMonth = new Date(today);
+          nextMonth.setMonth(nextMonth.getMonth() + 1);
+
+          switch (req.query.filter.toLowerCase()) {
+            case "today":
+              filter.date = {
+                $gte: today.toISOString().split("T")[0],
+                $lt: tomorrow.toISOString().split("T")[0],
+              };
+              break;
+
+            case "thisweek":
+              filter.date = {
+                $gte: today.toISOString().split("T")[0],
+                $lt: nextWeek.toISOString().split("T")[0],
+              };
+              break;
+
+            case "thismonth":
+              filter.date = {
+                $gte: today.toISOString().split("T")[0],
+                $lt: nextMonth.toISOString().split("T")[0],
+              };
+              break;
+
+            case "all":
+            default:
+              break;
+          }
+        }
+
+        if (req.query.search) {
+          filter.$or = [
+            { title: { $regex: req.query.search, $options: "i" } },
+            { description: { $regex: req.query.search, $options: "i" } },
+          ];
+        }
+
+        if (req.query.date) {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(req.query.date)) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid date format. Use YYYY-MM-DD",
+            });
+          }
+          filter.date = req.query.date;
+        }
+
+        if (req.query.category && req.query.category !== "all") {
+          filter.category = req.query.category;
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const events = await event
+          .aggregate([
+            {
+              $match: filter,
+            },
+            {
+              $addFields: {
+                eventDate: {
+                  $cond: {
+                    if: { $eq: [{ $type: "$date" }, "string"] },
+                    then: { $dateFromString: { dateString: "$date" } },
+                    else: "$date",
+                  },
+                },
+                isToday: {
+                  $eq: [
+                    {
+                      $cond: {
+                        if: { $eq: [{ $type: "$date" }, "string"] },
+                        then: { $dateFromString: { dateString: "$date" } },
+                        else: "$date",
+                      },
+                    },
+                    today,
+                  ],
+                },
+                isFuture: {
+                  $gt: [
+                    {
+                      $cond: {
+                        if: { $eq: [{ $type: "$date" }, "string"] },
+                        then: { $dateFromString: { dateString: "$date" } },
+                        else: "$date",
+                      },
+                    },
+                    today,
+                  ],
+                },
+              },
+            },
+            {
+              $sort: {
+                isToday: -1,
+                isFuture: -1,
+                date: 1,
+                createdAt: -1,
+              },
+            },
+            { $limit: limit },
+          ])
+          .toArray();
+
+        if (events.length === 0) {
+          return res.status(404).json({
+            success: false,
+            message: "No events found matching your criteria",
+          });
+        }
+
+        res.json({
+          success: true,
+          data: events,
+        });
+      } catch (error) {
+        console.error("Error:", error);
+        res.status(500).json({
+          success: false,
+          message: "Internal server error",
+          error:
+            process.env.NODE_ENV === "development" ? error.message : undefined,
+        });
+      }
+    });
+
+    app.get("api.v1/my-events", async (req, res) => {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res
+          .status(401)
+          .json({ success: false, message: "Authorization token required" });
+      }
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const userEmail = decoded.email;
+      const IsUserHave = await user.findOne({ email: userEmail });
+      if (!IsUserHave) {
+        return res
+          .status(404)
+          .json({ success: false, message: "You are not authorized" });
+      }
+      const myEvents = await event.find({ creatorEmail: userEmail }).toArray();
+      if (myEvents.length === 0) {
+        return res
+          .status(404)
+          .json({ success: false, message: "No events found for this user" });
+      }
+      res.json({ success: true, data: myEvents });
     });
 
     app.get("/api/v1/event/:id", async (req, res) => {
@@ -410,6 +662,79 @@ async function run() {
           attendees: [...(eventData.attendees || []), userEmail],
         },
       });
+    });
+
+    app.get("/api/v1/me", async (req, res) => {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res
+          .status(401)
+          .json({ success: false, message: "Authorization token required" });
+      }
+
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userEmail = decoded.email;
+
+        // Find the user by email
+        const userData = await user.findOne({ email: userEmail });
+        if (!userData) {
+          return res.status(404).json({
+            success: false,
+            message: "User not found",
+          });
+        }
+
+        res.json({
+          success: true,
+          data: userData,
+        });
+      } catch (error) {
+        console.error("Error fetching user data:", error);
+        res.status(500).json({
+          success: false,
+          message: "Internal server error",
+        });
+      }
+    });
+
+    app.put("/api/v1/me", async (req, res) => {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res
+          .status(401)
+          .json({ success: false, message: "Authorization token required" });
+      }
+
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userEmail = decoded.email;
+
+        // Find the user by email
+        const userData = await user.findOne({ email: userEmail });
+        if (!userData) {
+          return res.status(404).json({
+            success: false,
+            message: "User not found",
+          });
+        }
+
+        // Update user data
+        const updatedData = { ...req.body };
+        await user.updateOne({ email: userEmail }, { $set: updatedData });
+
+        res.json({
+          success: true,
+          message: "User data updated successfully",
+          data: updatedData,
+        });
+      } catch (error) {
+        console.error("Error updating user data:", error);
+        res.status(500).json({
+          success: false,
+          message: "Internal server error",
+        });
+      }
     });
 
     // Start the server
