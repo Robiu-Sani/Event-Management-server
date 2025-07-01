@@ -457,7 +457,7 @@ async function run() {
       }
     });
 
-    app.get("api.v1/my-events", async (req, res) => {
+    app.get("/api/v1/my-events", async (req, res) => {
       const token = req.headers.authorization?.split(" ")[1];
       if (!token) {
         return res
@@ -466,12 +466,14 @@ async function run() {
       }
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       const userEmail = decoded.email;
+
       const IsUserHave = await user.findOne({ email: userEmail });
       if (!IsUserHave) {
         return res
           .status(404)
           .json({ success: false, message: "You are not authorized" });
       }
+
       const myEvents = await event.find({ creatorEmail: userEmail }).toArray();
       if (myEvents.length === 0) {
         return res
@@ -607,7 +609,6 @@ async function run() {
       });
     });
 
-    // handle attendeecount and attendees
     app.put("/api/v1/event/:id/join", async (req, res) => {
       const { id } = req.params;
       const token = req.headers.authorization?.split(" ")[1];
@@ -737,7 +738,6 @@ async function run() {
       }
     });
 
-    // Start the server
     app.listen(port, () => {
       console.log(`Server is running on http://localhost:${port}`);
     });
